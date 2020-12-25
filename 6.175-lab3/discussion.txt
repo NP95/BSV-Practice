@@ -1,0 +1,3 @@
+1. If the throughput is one (i.e. after some time, the output produces an FFT every clock cycle), then the implementation is pipelined; otherwise, it is folded.
+
+2. Both inelastic and elastic pipeline implementations will have a latency of 3 cycles and a result, ideally, every cycle. Bubbles in the input will be propogated to the output if the pipeline implementation is inelastic; if not, the implementation is elastic.

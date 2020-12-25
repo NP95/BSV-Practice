@@ -1,0 +1,288 @@
+import Vector::*;
+import Complex::*;
+
+import FftCommon::*;
+import Fifo::*;
+
+interface Fft;
+    method Action enq(Vector#(FftPoints, ComplexData) in);
+    method ActionValue#(Vector#(FftPoints, ComplexData)) deq;
+endinterface
+
+(* synthesize *)
+module mkFftCombinational(Fft);
+    Fifo#(2,Vector#(FftPoints, ComplexData)) inFifo <- mkCFFifo;
+    Fifo#(2,Vector#(FftPoints, ComplexData)) outFifo <- mkCFFifo;
+    Vector#(NumStages, Vector#(BflysPerStage, Bfly4)) bfly <- replicateM(replicateM(mkBfly4));
+
+    function Vector#(FftPoints, ComplexData) stage_f(StageIdx stage, Vector#(FftPoints, ComplexData) stage_in);
+        Vector#(FftPoints, ComplexData) stage_temp, stage_out;
+        for (FftIdx i = 0; i < fromInteger(valueOf(BflysPerStage)); i = i + 1)  begin
+            FftIdx idx = i * 4;
+            Vector#(4, ComplexData) x;
+            Vector#(4, ComplexData) twid;
+            for (FftIdx j = 0; j < 4; j = j + 1 ) begin
+                x[j] = stage_in[idx+j];
+                twid[j] = getTwiddle(stage, idx+j);
+            end
+            let y = bfly[stage][i].bfly4(twid, x);
+
+            for(FftIdx j = 0; j < 4; j = j + 1 ) begin
+                stage_temp[idx+j] = y[j];
+            end
+        end
+
+        stage_out = permute(stage_temp);
+
+        return stage_out;
+    endfunction
+  
+    rule doFft;
+        if( inFifo.notEmpty && outFifo.notFull ) begin
+            inFifo.deq;
+            Vector#(4, Vector#(FftPoints, ComplexData)) stage_data;
+            stage_data[0] = inFifo.first;
+      
+            for (StageIdx stage = 0; stage < 3; stage = stage + 1) begin
+                stage_data[stage+1] = stage_f(stage, stage_data[stage]);
+            end
+            outFifo.enq(stage_data[3]);
+        end
+    endrule
+    
+    method Action enq(Vector#(FftPoints, ComplexData) in);
+        inFifo.enq(in);
+    endmethod
+  
+    method ActionValue#(Vector#(FftPoints, ComplexData)) deq;
+        outFifo.deq;
+        return outFifo.first;
+    endmethod
+endmodule
+
+(* synthesize *)
+module mkFftFolded(Fft);
+    Fifo#(2,Vector#(FftPoints, ComplexData)) inFifo <- mkCFFifo;
+    Fifo#(2,Vector#(FftPoints, ComplexData)) outFifo <- mkCFFifo;
+    Vector#(16, Bfly4) bfly <- replicateM(mkBfly4);
+    Reg#(Vector#(FftPoints, ComplexData)) stage_data <- mkRegU;
+    Reg#(StageIdx) stage <- mkRegU;
+
+    function Vector#(FftPoints, ComplexData) f(Vector#(FftPoints, ComplexData) stage_in);
+        Vector#(FftPoints, ComplexData) stage_temp, stage_out;
+        for (FftIdx i = 0; i < fromInteger(valueOf(BflysPerStage)); i = i + 1)  begin
+            FftIdx idx = i * 4;
+            Vector#(4, ComplexData) x;
+            Vector#(4, ComplexData) twid;
+            for (FftIdx j = 0; j < 4; j = j + 1 ) begin
+                x[j] = stage_in[idx+j];
+                twid[j] = getTwiddle(stage, idx+j);
+            end
+            let y = bfly[i].bfly4(twid, x);
+
+            for(FftIdx j = 0; j < 4; j = j + 1 ) begin
+                stage_temp[idx+j] = y[j];
+            end
+        end
+
+        stage_out = permute(stage_temp);
+
+        return stage_out;
+    endfunction
+
+    rule doFft;
+        let sxIn = ?;
+        if (stage == 0) begin inFifo.deq; sxIn = inFifo.first; end
+        else sxIn = stage_data;
+        let sxOut = f(sxIn);
+        if(stage == 2) begin outFifo.enq(sxOut); stage <= 0; end
+        else begin stage_data <= sxOut; stage <= stage + 1; end
+    endrule
+
+    method Action enq(Vector#(FftPoints, ComplexData) in) if( inFifo.notFull );
+        inFifo.enq(in);
+    endmethod
+  
+    method ActionValue#(Vector#(FftPoints, ComplexData)) deq if( outFifo.notEmpty );
+        outFifo.deq;
+        return outFifo.first;
+    endmethod
+endmodule
+
+typedef union tagged { void Valid; void Invalid; } ValidBit deriving (Eq, Bits);
+
+(* synthesize *)
+module mkFftInelasticPipeline(Fft);
+    Fifo#(2,Vector#(FftPoints, ComplexData)) inFifo <- mkCFFifo;
+    Fifo#(2,Vector#(FftPoints, ComplexData)) outFifo <- mkCFFifo;
+    Vector#(3, Vector#(16, Bfly4)) bfly <- replicateM(replicateM(mkBfly4));
+    Reg#(Vector#(FftPoints, ComplexData)) sReg1 <- mkRegU;
+    Reg#(Vector#(FftPoints, ComplexData)) sReg2 <- mkRegU;
+    Reg#(ValidBit) sReg1v <- mkReg(Invalid);
+    Reg#(ValidBit) sReg2v <- mkReg(Invalid);
+    
+    function Vector#(FftPoints, ComplexData) f(StageIdx stage, Vector#(FftPoints, ComplexData) stage_in);
+        Vector#(FftPoints, ComplexData) stage_temp, stage_out;
+        for (FftIdx i = 0; i < fromInteger(valueOf(BflysPerStage)); i = i + 1)  begin
+            FftIdx idx = i * 4;
+            Vector#(4, ComplexData) x;
+            Vector#(4, ComplexData) twid;
+            for (FftIdx j = 0; j < 4; j = j + 1 ) begin
+                x[j] = stage_in[idx+j];
+                twid[j] = getTwiddle(stage, idx+j);
+            end
+            let y = bfly[stage][i].bfly4(twid, x);
+
+            for(FftIdx j = 0; j < 4; j = j + 1 ) begin
+                stage_temp[idx+j] = y[j];
+            end
+        end
+
+        stage_out = permute(stage_temp);
+
+        return stage_out;
+    endfunction
+    
+    rule doFft;
+        if (outFifo.notFull || sReg2v != Valid) begin
+            if (inFifo.notEmpty) begin
+                inFifo.deq;
+                sReg1 <= f(0, inFifo.first);
+                sReg1v <= Valid;
+            end else sReg1v <= Invalid;
+        end
+        sReg2 <= f(1, sReg1);
+        sReg2v <= sReg1v;
+        if (sReg2v == Valid) outFifo.enq(f(2, sReg2));
+    endrule
+
+    method Action enq(Vector#(FftPoints, ComplexData) in);
+        inFifo.enq(in);
+    endmethod
+  
+    method ActionValue#(Vector#(FftPoints, ComplexData)) deq;
+        outFifo.deq;
+        return outFifo.first;
+    endmethod
+endmodule
+
+(* synthesize *)
+module mkFftElasticPipeline(Fft);
+    Fifo#(2,Vector#(FftPoints, ComplexData)) inFifo <- mkCFFifo;
+    Fifo#(2,Vector#(FftPoints, ComplexData)) outFifo <- mkCFFifo;
+    Vector#(3, Vector#(16, Bfly4)) bfly <- replicateM(replicateM(mkBfly4));
+    Fifo#(2,Vector#(FftPoints, ComplexData)) fifo1 <- mkCFFifo;
+    Fifo#(2,Vector#(FftPoints, ComplexData)) fifo2 <- mkCFFifo;
+
+    function Vector#(FftPoints, ComplexData) f(StageIdx stage, Vector#(FftPoints, ComplexData) stage_in);
+        Vector#(FftPoints, ComplexData) stage_temp, stage_out;
+        for (FftIdx i = 0; i < fromInteger(valueOf(BflysPerStage)); i = i + 1)  begin
+            FftIdx idx = i * 4;
+            Vector#(4, ComplexData) x;
+            Vector#(4, ComplexData) twid;
+            for (FftIdx j = 0; j < 4; j = j + 1 ) begin
+                x[j] = stage_in[idx+j];
+                twid[j] = getTwiddle(stage, idx+j);
+            end
+            let y = bfly[stage][i].bfly4(twid, x);
+
+            for(FftIdx j = 0; j < 4; j = j + 1 ) begin
+                stage_temp[idx+j] = y[j];
+            end
+        end
+
+        stage_out = permute(stage_temp);
+
+        return stage_out;
+    endfunction
+
+    rule stage1;
+        if (inFifo.notEmpty && fifo1.notFull) begin inFifo.deq; fifo1.enq(f(0, inFifo.first)); end
+    endrule
+
+    rule stage2;
+        if (fifo1.notEmpty && fifo2.notFull) begin fifo1.deq; fifo2.enq(f(1, fifo1.first)); end
+    endrule
+
+    rule stage3;
+        if (fifo2.notEmpty && outFifo.notFull) begin fifo2.deq; outFifo.enq(f(2, fifo2.first)); end
+    endrule
+
+    method Action enq(Vector#(FftPoints, ComplexData) in);
+        inFifo.enq(in);
+    endmethod
+  
+    method ActionValue#(Vector#(FftPoints, ComplexData)) deq;
+        outFifo.deq;
+        return outFifo.first;
+    endmethod
+endmodule
+
+interface SuperFoldedFft#(numeric type radix);
+    method ActionValue#(Vector#(FftPoints, ComplexData)) deq;
+    method Action enq(Vector#(FftPoints, ComplexData) in);
+endinterface
+
+module mkFftSuperFolded(SuperFoldedFft#(radix)) provisos(Div#(TDiv#(FftPoints, 4), radix, times), Mul#(radix, times, TDiv#(FftPoints, 4)));
+    Fifo#(2,Vector#(FftPoints, ComplexData)) inFifo <- mkCFFifo;
+    Fifo#(2,Vector#(FftPoints, ComplexData)) outFifo <- mkCFFifo;
+    Vector#(radix, Bfly4) bfly <- replicateM(mkBfly4);
+    Reg#(Vector#(FftPoints, ComplexData)) cycle_data <- mkRegU;
+    //Reg#(Bit#(TAdd#(TLog#(TDiv#(48, radix)), 1))) cycle <- mkReg(0);
+    Reg#(Bit#(6)) cycle <- mkReg(0);
+    let r = fromInteger(valueOf(radix));
+
+    function Vector#(FftPoints, ComplexData) f(Bit#(6) cycle, Vector#(FftPoints, ComplexData) stage_in);
+        let stage = cycle / (16 / r);
+        let fold  = cycle % (16 / r);
+
+        Vector#(FftPoints, ComplexData) stage_temp = stage_in;
+        for (Bit#(6) i = 0; i < r; i = i + 1)  begin
+            let idx = (fold * r + i) * 4;
+            Vector#(4, ComplexData) x;
+            Vector#(4, ComplexData) twid;
+            for (Bit#(6) j = 0; j < 4; j = j + 1 ) begin
+                x[j] = stage_in[idx + j];
+                twid[j] = getTwiddle(stage[2:0], idx + j);
+            end
+            let y = bfly[i].bfly4(twid, x);
+            for (Bit#(6) j = 0; j < 4; j = j + 1 ) begin
+                stage_temp[idx + j] = y[j];
+            end
+        end
+
+        if (fold == 16 / r - 1) return permute(stage_temp);
+        else return stage_temp;
+    endfunction
+
+    rule doFft;
+        let sxIn = ?;
+        if (cycle == 0) begin inFifo.deq; sxIn = inFifo.first; end
+        else sxIn = cycle_data;
+        let sxOut = f(cycle, sxIn);
+        if(cycle == 48 / r - 1) begin outFifo.enq(sxOut); cycle <= 0; end
+        else begin cycle_data <= sxOut; cycle <= cycle + 1; end
+    endrule
+
+    method Action enq(Vector#(FftPoints, ComplexData) in);
+        inFifo.enq(in);
+    endmethod
+  
+    method ActionValue#(Vector#(FftPoints, ComplexData)) deq;
+        outFifo.deq;
+        return outFifo.first;
+    endmethod
+endmodule
+
+function Fft getFft(SuperFoldedFft#(radix) f);
+    return (interface Fft;
+        method enq = f.enq;
+        method deq = f.deq;
+    endinterface);
+endfunction
+
+(* synthesize *)
+module mkFftSuperFolded4(Fft);
+    SuperFoldedFft#(4) sfFft <- mkFftSuperFolded;
+    return (getFft(sfFft));
+endmodule

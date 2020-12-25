@@ -1,0 +1,13 @@
+1. How many gates does your one-bit multiplexer use? The 5-bit multiplexer? Write down a formula for an N-bit multiplexer.
+
+My one-bit multiplexer uses 4 gates. The 5-bit multiplexer uses 5 * 4 = 20 gates. An N-bit multiplexer uses 4N gates.
+
+
+2. Assume a single full adder requires 5 gates. How many gates does the 8-bit ripple carry adder require? How many gates does the 8-bit carry select adder require?
+
+The 8-bit ripple carry adder requires 2 * 4 * 5 = 40 gates. The 8-bit carry select adder requires 3 * 4 * 5 + 5 * 4 + 4 = 84 gates.
+
+
+3. Assume a single full adder requires A time unit to compute its outputs once all its inputs are valid and a mux requires M time unit to compute its output. In terms of A and M, how long does the 8-bit ripple carry adder take? How long does the 8-bit carry select adder take?
+
+The 8-bit ripple carry adder takes 2 * 4 * A = 8A time units. The 8-bit carry select adder takes 4A + M time units.

@@ -1,0 +1,7 @@
+Discussion Question 1 (10 Points): In the spirit of the upcoming Thanksgiving holiday, list some reasons you are thankful you only have to do this lab on a one cycle processor. To get you started: what new hazards would exceptions introduce if you were working on a pipelined implementation?
+
+1. Exceptions can be caused from different stages and/or different instructions in the pipeline
+2. Keep track of earliest instruction or stage exception
+3. We would need to redirect PC at the commit stage for exceptions, which requires more epochs
+4. More modifications -> more debugging
+

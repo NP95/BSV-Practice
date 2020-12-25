@@ -1,0 +1,11 @@
+Username: akashk16
+Grade: 103%
+Comments: Good job!
+For discussion question 2, the formula for branch predictor accuracy is
+2 - 1/IPC, you can see that because the number of cycles for this
+processor to execute a program is
+  Cycles = Instructions + (1 - Accuracy) * Instructions
+
+In response to the bonus discussion questions: As you learned from later
+lectures, branch prediction is a bit more complicated than just having a
+large enough btb, direction prediction is important two.

@@ -1,0 +1,74 @@
+Discussion Question 1 (10 Points): Debugging practice!
+
+'Executing unsupported instruction at pc: 00004000. Exiting'
+
+
+
+
+Discussion Question 2 (5 Points): What evidence do you have that all stages are able to firing in the same cycle?
+
+The fetch stage always enqueues the next fifo on every cycle (no mispredictions), and every other stage except for the last enqueues into its next fifo, so after six cycles, all stages would have something to dequeue from their fifos and thus fire. Moreover, if the only one stage fired at a time, then the IPC would be 1/6, which is not the case.
+
+
+Discussion Question 3 (5 Points): In your six-stage pipelined processor, how many cycles does it take to correct a mispredicted instruction?
+
+The misprediction is picked up in the execute stage, which means that three other instructions have already been fetched. Additionally, the next fetch cycle handles the redirect and does not fetch an instruction, so it takes an additional cycle for a total of 3 + 1 = 4 cycles to correct a mispredicted instruction.
+
+
+Discussion Question 4 (5 Points): If an instruction depends on the result of the instruction immediately before it in the pipeline, how many cycles is that instruction stalled?
+
+An instruction is added to the scoreboard during the register read stage. In the next cycle, the dependent instruction will go through the register read stage, but it will stall because its dependency is in the scoreboard. Stalling will be released when the dependency is removed from the scoreboard, which happens after the write back stage. The dependent instruction is stalled for three cycles.
+
+
+Discussion Question 5 (5 Points): What IPC do you get for each benchmark?
+
+Benchmark	Insts	Cycles	IPC
+-------------------------------------
+median		8514	16951	0.502
+multiply	22874	47366	0.483
+qsort		25269	54507	0.464
+towers		10643	19371	0.549
+vvadd		3037	5458	0.556
+
+
+
+Discussion Question 6 (10 Points): Planning!
+
+The training of the BHT will be positioned in the fetch stage; the predicting of the BHT will be placed in the decode stage. The BHT prediction could be used in the fetch stage due to redirection from the decode stage.
+
+A new FIFO will be added for redirecting BHT data, which requires new epochs. Data passed from fetch to decode will contain a decode epoch in addition to the execute epoch. The fetch stage handles execute redirects first, because those redirects are always correct and it gives us a chance to train and BTB and BHT. The decode redirects are then processed only if execute epochs match.
+
+The BTB and BHT will always and only be trained from execute redirects, because that is what contains the true next pc. The execute stage from branch instructions produces the training data. No new FIFO is needed for training the BTB or BHT.
+
+BHT works if assembly and benchmark tests pass and, generally speaking, the IPCs increase in addition to a large increase in bht assembly test.
+
+
+Discussion Question 7 (5 Points): How much improvement do you see in the bpred bht.asm.vmh test over the processor in SixStage.bsv?
+
+Big reduction.
+
+5016 -> 3558 (-29.1%)
+
+
+Discussion Question 8 (5 Points): How much improvement do you see in the bpred j.asm.vmh and
+bpred jal.asm.vmh tests over the processor in SixStage.bsv?
+
+Big reduction.
+
+66 -> 50 (-24.24%)
+
+
+Discussion Question 9 (5 Points): What IPC do you get for each benchmark? How much improvement
+is this over the original six-stage pipeline?
+
+I'm surprised that most of the benchmarks performed worse. However, it may be due to the reduced instruction counts...
+
+Benchmark	Insts	Cycles	IPC	Improvement
+---------------------------------------------------
+median		8247	16959	0.486	-3.18%
+multiply	23086	47729	0.484	+0.16%
+qsort		24634	53545	0.460	-0.76%
+towers		10541	19584	0.538	-2.04%
+vvadd		3029	5455	0.555	-0.21%
+
+

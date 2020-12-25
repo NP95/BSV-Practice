@@ -1,0 +1,3 @@
+Username: akashk16
+Grade: 95%
+Comments: The 8-bit carry-select adder has a 4-bit mux and a 1-bit mux, so the formula for the number of gates would be 3 * 4 * 5 + 4 * 4 + 4 = 80
